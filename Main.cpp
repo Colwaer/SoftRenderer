@@ -11,7 +11,7 @@ const int width = 800;
 const int height = 800;
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
-
+const TGAColor green = TGAColor(0, 255, 0, 255);
 void line(int x0, int y0, int x1, int y1, TGAImage &image, TGAColor color)
 {
     bool steep = false;
@@ -74,29 +74,68 @@ void triangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color)
     line(t2, t1, image, color);
     line(t0, t2, image, color);
 }
+void FillTriangle(Vec2i t0, Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color)
+{
+    if (t1.y <= t2.y)
+    {
+        Vec2i t;
+        t = t1;
+        t1 = t2;
+        t2 = t;
+    }
+    if (t0.y <= t1.y)
+    {
+        Vec2i t;
+        t = t0;
+        t0 = t1;
+        t1 = t;
+    }
+    if (t1.y <= t2.y)
+    {
+        Vec2i t;
+        t = t1;
+        t1 = t2;
+        t2 = t;
+    }
+    int lenY1 = t0.y - t1.y;
+    int lenY2 = t1.y - t2.y;
+    int lenY = t0.y - t2.y;
+    int lenX = t2.x - t0.x;
+    int lenX1 = t1.x - t0.x;
+    int lenX2 = t2.x - t1.x;
+    Vec2i pos1;
+    Vec2i pos2;
+    pos1.x = t0.x;
+    pos2.x = t0.x;
+    for (int y = t0.y; y >= t1.y; y--)
+    {
+
+        pos1.y = y;
+        pos2.y = y;
+        pos1.x = (t0.y - y) / (float)lenY * lenX + t0.x;
+        pos2.x = (t0.y - y) / (float)lenY1 * lenX1 + t0.x;
+        line(pos1, pos2, image, color);
+    }
+    Vec2i t3 = pos1;
+    for (int y = t1.y; y >= t2.y; y--)
+    {
+        pos1.y = y;
+        pos2.y = y;
+        pos1.x = (t0.y - y) / (float)lenY * lenX + t0.x;
+        pos2.x = (t1.y - y) / (float)lenY2 * lenX2 + t1.x;
+        line(pos1, pos2, image, color);
+    }
+}
 int main()
 {
     model = new Model("obj/african_head.obj");
     TGAImage image(width, height, TGAImage::RGB);
-    // for (int i = 0; i < model->nfaces(); i++)
-    // {
-    //     vector<int> face = model->face(i);
-    //     for (int j = 0; j < 3; j++)
-    //     {
-    //         Vec3f v0 = model->vert(face[j]);
-    //         Vec3f v1 = model->vert(face[(j + 1) % 3]);
-    //         int x0 = (v0.x + 1.) * width / 2.;
-    //         int y0 = (v0.y + 1.) * height / 2.;
-    //         int x1 = (v1.x + 1.) * width / 2.;
-    //         int y1 = (v1.y + 1.) * height / 2.;
-    //         line(x0, y0, x1, y1, image, white);
-    //     }
-    // }
-    Vec2i t0[3] = {Vec2i(10, 70), Vec2i(50, 160), Vec2i(70, 80)};
-    Vec2i t1[3] = {Vec2i(180, 50), Vec2i(150, 1), Vec2i(70, 180)};
-    Vec2i t2[3] = {Vec2i(180, 150), Vec2i(120, 160), Vec2i(130, 180)};
-
-    triangle(t0[0], t0[1], t0[2], image, red);
+    Vec2i t0[3] = {Vec2i(110, 70), Vec2i(150, 160), Vec2i(170, 80)};
+    Vec2i t1[3] = {Vec2i(280, 50), Vec2i(150, 1), Vec2i(70, 180)};
+    Vec2i t2[3] = {Vec2i(280, 150), Vec2i(120, 160), Vec2i(130, 180)};
+    
+    FillTriangle(t0[0], t0[1], t0[2], image, red);
+    triangle(t0[0], t0[1], t0[2], image, green);
     image.flip_vertically();
     image.write_tga_file("output.tga");
     delete model;
