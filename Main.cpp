@@ -9,11 +9,46 @@
 using namespace std;
 
 Model *model = NULL;
+
 const int width = 800;
 const int height = 800;
+const int depth = 255;
+
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
 const TGAColor green = TGAColor(0, 255, 0, 255);
+const TGAColor blue = TGAColor(0, 0, 255, 255);
+const TGAColor yellow = TGAColor(255, 255, 0, 255);
+
+Vec3f light_dir(0, 0, -1);
+Vec3f camera(0, 0, 3);
+
+Vec3f Matrix2Vector(Matrix m)
+{
+    return Vec3f(m[0][0] / m[3][0], m[1][0] / m[3][0], m[2][0] / m[3][0]);
+}
+Matrix Vector2Matrix(Vec3f v)
+{
+    Matrix m(4, 1);
+    m[0][0] = v.x;
+    m[1][0] = v.y;
+    m[2][0] = v.z;
+    m[3][0] = 1.f;
+    return m;
+}
+// x和y为左下角的坐标
+Matrix viewport(int x, int y, int w, int h)
+{
+    Matrix m = Matrix::identity(4);
+    m[0][3] = x + w / 2.f;
+    m[1][3] = y + h / 2.f;
+    m[2][3] = depth / 2.f;
+
+    m[0][0] = w / 2.f;
+    m[1][1] = h / 2.f;
+    m[2][2] = depth / 2.f;
+    return m;
+}
 Vec3f cross(Vec3f p0, Vec3f p1)
 {
     return Vec3f(p0.y * p1.z - p0.z * p1.y, p0.z * p1.x - p0.x * p1.z, p0.x * p1.y - p0.y * p1.x);
@@ -156,6 +191,40 @@ void triangle(Vec3f *pts, float *zBuffer, TGAImage &image, TGAColor color)
         }
     }
 }
+void triangle(Vec3f *pts, float *zBuffer, Vec2i uv0, Vec2i uv1, Vec2i uv2, TGAImage &image)
+{
+    Vec2f bboxmin(numeric_limits<float>::max(), numeric_limits<float>::max());
+    Vec2f bboxmax(-numeric_limits<float>::max(), -numeric_limits<float>::max());
+    Vec2f clamp(image.get_width() - 1, image.get_height() - 1);
+    for (int i = 0; i < 3; i++)
+    {
+        for (int j = 0; j < 2; j++)
+        {
+            bboxmin.raw[j] = max(0.f, min(bboxmin.raw[j], pts[i].raw[j]));
+            bboxmax.raw[j] = max(clamp.raw[j], max(bboxmax.raw[j], pts[i].raw[j]));
+        }
+    }
+    Vec3f P;
+    for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++)
+    {
+        for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++)
+        {
+            Vec3f bc_screen = Barycentric(pts[0], pts[1], pts[2], P);
+            if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0)
+                continue;
+            P.z = 0;
+            for (int i = 0; i < 3; i++)
+                P.z += pts[i].raw[2] * bc_screen.raw[i];
+            if (zBuffer[int(P.x + P.y * width)] < P.z)
+            {
+                TGAColor color = model->diffuse(uv0 * bc_screen[0] + uv1 * bc_screen[1] + uv2 * bc_screen[2]);
+
+                zBuffer[int(P.x + P.y * width)] = P.z;
+                image.set(P.x, P.y, color);
+            }
+        }
+    }
+}
 Vec3f World2Screen(Vec3f v)
 {
     return Vec3f(int((v.x + 1.) * width / 2. + .5), int((v.y + 1.) * height / 2. + .5), v.z);
@@ -164,6 +233,7 @@ int main()
 {
     srand((unsigned)time(NULL));
     model = new Model("obj/african_head.obj");
+    
     TGAImage image(width, height, TGAImage::RGB);
     TGAImage texture;
     texture.read_tga_file("obj/african_head_diffuse.tga");
@@ -175,25 +245,33 @@ int main()
     float *zBuffer = new float[width * height];
     for (int i = width * height; i--; zBuffer[i] = numeric_limits<float>::max());
 
-    Vec3f light_dir(0, 0, -1);
+    Matrix Projection = Matrix::identity(4);
+    Matrix ViewPort = viewport(5., 5., width - 20, height - 20);
+    Projection[3][2] = -1.f / camera.z;
     for (int i = 0; i < width * height; i++)
         zBuffer[i] = INT_MIN;
     for (int i = 0; i < model->nfaces(); i++)
     {
         vector<int> face = model->face(i);
-        Vec3f pts[3];
-        for (int i = 0; i < 3; i++)
-            pts[i] = model->vert(face[i]);
-        // cross
-        Vec3f n = (pts[2] - pts[0]) ^ (pts[1] - pts[0]);
-        for (int i = 0; i < 3; i++)
-            pts[i] = World2Screen(pts[i]);
+        Vec3f screen_coords[3];
+        Vec3f world_coords[3];
+        for (int j = 0; j < 3; j++)
+        {
+            Vec3f v = model->vert(face[j]);
+            screen_coords[j] = (Vec3i)Matrix2Vector(ViewPort * Projection * Vector2Matrix(v));
+            world_coords[j] = v;
+        }
+        Vec3f n = (world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0]);
         n.normalize();
         float intensity = n * light_dir;
-        
         if (intensity > 0)
         {
-            triangle(pts, zBuffer, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
+            Vec2i uv[3];
+            for (int k = 0; k < 3; k++)
+            {
+                uv[k] = model->uv(i, k);
+            }
+            triangle(screen_coords, zBuffer, uv[0], uv[1], uv[2], image);
         }
         // Triangle(screen_coords, image, TGAColor(rand() % 255, rand() % 255, rand() % 255, 255));
     }
